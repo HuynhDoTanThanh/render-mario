@@ -9,6 +9,8 @@ import gym
 import numpy as np
 import collections 
 import cv2
+import os
+import time
 
 
 
@@ -146,7 +148,7 @@ class DQNSolver(nn.Module):
 class DQNAgent:
     
     def __init__(self, state_space, action_space, max_memory_size, batch_size, gamma, lr,
-                 dropout, epsilon_max, epsilon_min, epsilon_decay, double_dqn, pretrained):
+                 dropout, epsilon_max, epsilon_min, epsilon_decay, double_dqn, pretrained, world, stage):
 
         # Define DQN Layers
         self.state_space = state_space
@@ -154,6 +156,11 @@ class DQNAgent:
         self.double_dqn = double_dqn
         self.pretrained = pretrained
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.world = world
+        self.stage = stage
+
+        path = "weights\\super-mario-bros-{}-{}".format(self.world, self.stage)
+        print(os.listdir(path))
         
         # Double DQN network
         if self.double_dqn:  
@@ -161,8 +168,8 @@ class DQNAgent:
             self.target_net = DQNSolver(state_space, action_space).to(self.device)
             
             if self.pretrained:
-                self.local_net.load_state_dict(torch.load("DQN1.pt", map_location=torch.device(self.device)))
-                self.target_net.load_state_dict(torch.load("DQN2.pt", map_location=torch.device(self.device)))
+                self.local_net.load_state_dict(torch.load(os.path.join(path, "DQN1.pt"), map_location=torch.device(self.device)))
+                self.target_net.load_state_dict(torch.load(os.path.join(path, "DQN2.pt"), map_location=torch.device(self.device)))
                     
             self.optimizer = torch.optim.Adam(self.local_net.parameters(), lr=lr)
             self.copy = 5000  # Copy the local model weights into the target network every 5000 steps
@@ -172,7 +179,7 @@ class DQNAgent:
             self.dqn = DQNSolver(state_space, action_space).to(self.device)
             
             if self.pretrained:
-                self.dqn.load_state_dict(torch.load("DQN.pt", map_location=torch.device(self.device)))
+                self.dqn.load_state_dict(torch.load(os.path.join(path, "DQN.pt"), map_location=torch.device(self.device)))
             self.optimizer = torch.optim.Adam(self.dqn.parameters(), lr=lr)
 
         # Create memory
@@ -214,9 +221,9 @@ class DQNAgent:
         """Copy local net weights into target net for DDQN network"""
         self.target_net.load_state_dict(self.local_net.state_dict())
 
-def run(double_dqn, world=1, state=1, num_episodes=100, epsilon_max=1, action=SIMPLE_MOVEMENT):
+def run(double_dqn, world=1, stage=1, num_episodes=100, epsilon_max=1, action=RIGHT_ONLY):
        
-    env = gym_super_mario_bros.make('SuperMarioBros-{}-{}-v0'.format(world, state))
+    env = gym_super_mario_bros.make('SuperMarioBros-{}-{}-v0'.format(world, stage))
     env = create_mario_env(env, action)  # Wraps the environment so that frames are grayscale 
     observation_space = env.observation_space.shape
     action_space = env.action_space.n
@@ -232,10 +239,13 @@ def run(double_dqn, world=1, state=1, num_episodes=100, epsilon_max=1, action=SI
                      epsilon_min=0.001,
                      epsilon_decay=0.000001,
                      double_dqn=double_dqn,
-                     pretrained=True)
+                     pretrained=True,
+                     world=world,
+                     stage=stage)
     
     # Restart the enviroment for each episode
     env.reset()
+    dones = 0
     
     total_rewards = []
     
@@ -247,6 +257,7 @@ def run(double_dqn, world=1, state=1, num_episodes=100, epsilon_max=1, action=SI
         steps = 0
         while True:
             env.render()
+            # time.sleep(0.1)
             action = agent.act(state)
             steps += 1
             
@@ -260,14 +271,16 @@ def run(double_dqn, world=1, state=1, num_episodes=100, epsilon_max=1, action=SI
             
             state = state_next
             if terminal:
+                if(info['flag_get']):
+                    dones += 1
                 break
         
         total_rewards.append(total_reward)
         
-        print("Episode {} score = {}, average score = {}, epsilon = {}, steps = {}".format(ep_num, total_rewards[-1], np.mean(total_rewards), agent.epsilon_rate, steps))
+        print("Episode {} score = {}, average score = {}, epsilon = {}, steps = {}, dones = {}".format(ep_num, total_rewards[-1], np.mean(total_rewards), agent.epsilon_rate, steps, dones))
 
         
     env.close()
 
 if __name__ == "__main__":
-    run(True, num_episodes=10, epsilon_max=0.05)
+    run(double_dqn=True, world=1, stage=1, num_episodes=10, epsilon_max=0.02, action=SIMPLE_MOVEMENT)
